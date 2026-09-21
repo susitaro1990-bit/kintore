@@ -1,5 +1,5 @@
-const CACHE = 'kintore-v3';
-const FILES = ['./', 'index.html', 'style.css', 'data.js', 'app.js', 'manifest.json', 'icon.svg', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'];
+const CACHE = 'kintore-v4';
+const FILES = ['./', 'index.html', 'style.css', 'data.js', 'app.js', 'manifest.json', 'icon.svg', 'icon-v2-192.png', 'icon-v2-512.png', 'apple-touch-icon-v2.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES))); self.skipWaiting(); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k))))); self.clients.claim(); });
 // ネットワーク優先。オフライン時のみキャッシュを使う
