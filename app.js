@@ -18,6 +18,23 @@ function weekStart(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); x.setDate
 function plannedDays(p) { return WEEK_PLAN[p.days] || WEEK_PLAN[3]; }
 function bmi(p) { return p.weight / Math.pow(p.height / 100, 2); }
 
+// 1日の平均歩数 → 活動量の倍率(区間ごとの直線補間。厚生労働省の身体活動レベルの目安を参考)
+const STEP_POINTS = [[0, 1.2], [5000, 1.3], [7500, 1.4], [10000, 1.475], [12500, 1.55], [15000, 1.6]];
+function stepsToActivity(steps) {
+  const s = Math.max(0, steps || 0);
+  for (let i = 0; i < STEP_POINTS.length - 1; i++) {
+    const [s0, a0] = STEP_POINTS[i], [s1, a1] = STEP_POINTS[i + 1];
+    if (s <= s1) return +(a0 + (a1 - a0) * (Math.max(s, s0) - s0) / (s1 - s0)).toFixed(3);
+  }
+  return STEP_POINTS[STEP_POINTS.length - 1][1];
+}
+function activityLabel(a) { return a < 1.33 ? '座り仕事が中心' : a < 1.45 ? '普通' : a < 1.58 ? 'よく動く' : 'かなり活発'; }
+function stepsHint(steps) {
+  if (!steps) return 'スマホのヘルスケア/Google Fitなどで、直近の平均を確認できます。';
+  const a = stepsToActivity(+steps);
+  return `活動量の目安: ${activityLabel(a)}(消費の倍率 ${a.toFixed(2)})`;
+}
+
 function nutrition(p) {
   const pat = PATTERNS[p.pattern];
   const sexAdj = p.sex === 'm' ? 5 : p.sex === 'f' ? -161 : -78;
@@ -126,7 +143,7 @@ function render() {
 }
 
 function defaultDraft() {
-  return { height: '', weight: '', age: '', sex: 'm', activity: 1.4, pushups: 30, pattern: 'fit', targetWeight: '', minutes: 20, days: 3 };
+  return { height: '', weight: '', age: '', sex: 'm', steps: '', pushups: 30, pattern: 'fit', targetWeight: '', minutes: 20, days: 3 };
 }
 
 function formView(p, isNew) {
@@ -146,7 +163,8 @@ function formView(p, isNew) {
     <div><label>体重 (kg)</label><input name="weight" type="number" step="0.1" inputmode="decimal" value="${p.weight}" required></div></div>
     <div class="row"><div><label>年齢</label><input name="age" type="number" inputmode="numeric" value="${p.age}" required></div>
     <div><label>性別</label><select name="sex">${[['m', '男性'], ['f', '女性'], ['o', 'その他']].map(([v, n]) => `<option value="${v}" ${p.sex === v ? 'selected' : ''}>${n}</option>`).join('')}</select></div></div>
-    <label>日常の活動量</label><select name="activity">${[[1.3, '座り仕事が中心'], [1.4, '普通(立ち仕事・歩く)'], [1.55, 'よく動く']].map(([v, n]) => `<option value="${v}" ${+p.activity === v ? 'selected' : ''}>${n}</option>`).join('')}</select>
+    <label>1日の平均歩数</label><input id="stepsIn" name="steps" type="number" inputmode="numeric" min="0" step="100" placeholder="例: 8000" value="${p.steps ?? ''}" required>
+    <p class="sub" id="stepsHint">${stepsHint(p.steps)}</p>
     <label>腕立て伏せの最大回数(だいたい)</label><input name="pushups" type="number" inputmode="numeric" value="${p.pushups}" required>
     <h2 style="margin-top:20px">目標</h2>
     ${pats}
@@ -199,7 +217,8 @@ function importData(file) {
 
 function readForm(form) {
   const fd = new FormData(form), g = k => fd.get(k);
-  return { height: +g('height'), weight: +g('weight'), age: +g('age'), sex: g('sex'), activity: +g('activity'), pushups: +g('pushups'),
+  const steps = +g('steps');
+  return { height: +g('height'), weight: +g('weight'), age: +g('age'), sex: g('sex'), steps, activity: stepsToActivity(steps), pushups: +g('pushups'),
     pattern: (formDraft && formDraft.pattern) || (S.profile && S.profile.pattern) || 'fit', targetWeight: +g('targetWeight'), minutes: +g('minutes'), days: +g('days') };
 }
 
@@ -452,6 +471,10 @@ document.addEventListener('click', e => {
 
 document.addEventListener('change', e => {
   if (e.target.id === 'impFile' && e.target.files[0]) importData(e.target.files[0]);
+});
+
+document.addEventListener('input', e => {
+  if (e.target.id === 'stepsIn') document.getElementById('stepsHint').textContent = stepsHint(e.target.value);
 });
 
 document.addEventListener('submit', e => {
