@@ -63,4 +63,6 @@ td, th { padding: 6px 4px; border-bottom: 1px solid var(--line); text-align: lef
 #run .in { max-width: 520px; margin: 0 auto; }
 .timer { font-size: 88px; font-weight: 800; text-align: center; margin: 24px 0; color: var(--accent); font-variant-numeric: tabular-nums; }
 ul.list { padding-left: 20px; margin: 6px 0; }
+.chk { display: flex; align-items: center; gap: 10px; margin: 16px 0 4px; font-size: 15px; color: var(--text); }
+.chk input { width: 22px; height: 22px; padding: 0; flex: none; accent-color: var(--accent); }
 .hide { display: none; }

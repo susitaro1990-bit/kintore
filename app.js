@@ -172,6 +172,7 @@ function formView(p, isNew) {
     <h2 style="margin-top:20px">トレーニング時間</h2>
     <div class="row"><div><label>1回の時間 (分)</label><input name="minutes" type="number" inputmode="numeric" min="8" max="90" value="${p.minutes}" required></div>
     <div><label>週の回数</label><select name="days"><option value="3" ${+p.days === 3 ? 'selected' : ''}>週3回(月水金)</option><option value="4" ${+p.days === 4 ? 'selected' : ''}>週4回(月火木土)</option></select></div></div>
+    <label class="chk"><input type="checkbox" name="cardio" ${p.cardio !== false ? 'checked' : ''}>筋トレの最後に有酸素3分(脳トレ付き)を足す</label>
     <div id="ferr" class="err"></div>
     <button class="primary big" type="submit">${isNew ? 'メニューを作る' : '保存する'}</button>
   </form>
@@ -219,8 +220,12 @@ function readForm(form) {
   const fd = new FormData(form), g = k => fd.get(k);
   const steps = +g('steps');
   return { height: +g('height'), weight: +g('weight'), age: +g('age'), sex: g('sex'), steps, activity: stepsToActivity(steps), pushups: +g('pushups'),
-    pattern: (formDraft && formDraft.pattern) || (S.profile && S.profile.pattern) || 'fit', targetWeight: +g('targetWeight'), minutes: +g('minutes'), days: +g('days') };
+    pattern: (formDraft && formDraft.pattern) || (S.profile && S.profile.pattern) || 'fit', targetWeight: +g('targetWeight'), minutes: +g('minutes'), days: +g('days'), cardio: g('cardio') === 'on' };
 }
+
+// 仕上げの有酸素3分。設定がない既存データはオン扱い
+const cardioOn = p => p.cardio !== false;
+const cardioToday = () => CARDIO[S.sessions % CARDIO.length];
 
 function isTrainingDay(d) { return plannedDays(S.profile).includes(d.getDay()); }
 function doneOn(ds) { return S.logs.some(l => l.date === ds); }
@@ -253,8 +258,9 @@ function todayView() {
   const fatNote = weightNote + (fatDoneThisWeek() ? '' : note('今週の体脂肪率')) + backupNote;
   return `<h1>${head}</h1><p class="sub">${pat.name}(${pat.sub}) ・ ${sub}</p>${fatNote}
   <div class="card"><h2>今週 ${weekDone}/${plan.length}回</h2><div class="week">${weekCells}</div></div>
-  <div class="card"><div class="between"><h2>メニュー</h2><span class="sub">約${menu.minutes}分 ・ 休憩${pat.rest}秒</span></div>${items}
-    <p class="sub">ウォームアップ→上のメニュー→クールダウンの順です。</p>
+  <div class="card"><div class="between"><h2>メニュー</h2><span class="sub">約${menu.minutes + (cardioOn(p) ? CARDIO_SEC / 60 : 0)}分 ・ 休憩${pat.rest}秒</span></div>${items}
+    ${cardioOn(p) ? `<div class="ex"><div class="n">+</div><div class="t"><b>仕上げの有酸素<span class="tag">脳トレ付き</span></b><span class="sub">${cardioToday().name}</span></div><div style="text-align:right"><b>${CARDIO_SEC / 60}分</b></div></div>` : ''}
+    <p class="sub">ウォームアップ→上のメニュー${cardioOn(p) ? '→有酸素' : ''}→クールダウンの順です。</p>
     <button class="primary big" data-act="start">${done ? 'もう一度やる' : 'トレーニング開始'}</button></div>
   <div class="card sub">累計 ${S.sessions}回 実施</div>`;
 }
@@ -369,12 +375,20 @@ function startRun() {
 
 function beginWork() { tickStop(); R.phase = 'work'; R.timing = null; R.cur = R.items[R.i].target; renderRun(); }
 
+// 筋トレの後、仕上げの有酸素3分(設定でオフなら省略)
+function startCardio() {
+  if (!cardioOn(S.profile)) return finishRun();
+  R.phase = 'cardio'; R.left = CARDIO_SEC; R.cardio = cardioToday(); R.cardioDone = false;
+  beep(); renderRun();
+  startTick(() => { R.left--; if (R.left <= 0) { beep(); R.cardioDone = true; finishRun(); } else renderRun(); });
+}
+
 function finishSet(reps) {
   tickStop();
   R.acts[R.i].push(reps);
   const it = R.items[R.i];
   if (R.s + 1 >= it.sets) {
-    if (R.i + 1 >= R.items.length) return finishRun();
+    if (R.i + 1 >= R.items.length) return startCardio();
     R.i++; R.s = 0;
   } else R.s++;
   R.phase = 'rest'; R.left = it.rest;
@@ -385,7 +399,7 @@ function finishSet(reps) {
 function finishRun() {
   tickStop(); release();
   const ups = applyProgress(R.items, R.acts);
-  S.logs.push({ date: today(), items: R.items.map((it, k) => ({ id: it.ex.id, name: it.ex.name, target: it.target, sets: R.acts[k] })) });
+  S.logs.push({ date: today(), cardio: !!R.cardioDone, items: R.items.map((it, k) => ({ id: it.ex.id, name: it.ex.name, target: it.target, sets: R.acts[k] })) });
   S.sessions++; save();
   R.phase = 'done'; R.ups = ups; renderRun();
 }
@@ -412,8 +426,14 @@ function renderRun() {
     body = `<p class="sub">休憩</p><div class="timer">${r.left}</div>
       <div class="row"><button data-act="rest15">+15秒</button><button data-act="skiprest">スキップ</button></div>
       <div class="card" style="margin-top:16px"><span class="sub">次</span><h2>${nx.ex.name}</h2><span class="sub">セット ${r.s + 1}/${nx.sets} ・ 目標 ${nx.target}${nx.ex.type === 'time' ? '秒' : '回'}</span></div>`;
+  } else if (r.phase === 'cardio') {
+    const c = r.cardio;
+    body = `<p class="sub">仕上げの有酸素(脳トレ付き)</p><div class="timer">${fmt(r.left)}</div>
+      <div class="card"><h2>${c.name}</h2><ul class="list">${c.steps.map(x => `<li>${x}</li>`).join('')}</ul></div>
+      <p class="sub">少し息が上がるが、会話はできる強さで。</p>
+      <button class="ghost big" data-act="skipcardio">スキップして終了</button>`;
   } else {
-    body = `<h1>お疲れさまでした!🎉</h1><p class="sub">全${r.items.length}種目 完了。</p>
+    body = `<h1>お疲れさまでした!🎉</h1><p class="sub">全${r.items.length}種目 完了。${r.cardioDone ? '有酸素3分も完了です。' : ''}</p>
       <div class="card"><h2>次回の変化</h2>${r.ups.length ? `<ul class="list">${r.ups.map(u => `<li>${u}</li>`).join('')}</ul>` : '<p class="sub">今回は目標に届かなかった種目があるため、次回も同じ回数です。</p>'}</div>
       <div class="card"><h2>クールダウン</h2><ul class="list">${COOLDOWN.map(x => `<li>${x}</li>`).join('')}</ul></div>
       <div class="card"><p>トレーニング後のプロテインをお忘れなく。</p></div>
@@ -447,6 +467,7 @@ document.addEventListener('click', e => {
     case 'tstop': { const it = R.items[R.i], done = it.target - R.timing; R.timing = null; finishSet(Math.max(0, done)); break; }
     case 'rest15': R.left += 15; renderRun(); break;
     case 'skiprest': beginWork(); break;
+    case 'skipcardio': R.cardioDone = false; finishRun(); break;
     case 'abort': if (confirm('トレーニングを中止しますか?(記録は保存されません)')) { tickStop(); release(); R = null; runEl.classList.add('hide'); } break;
     case 'close': R = null; runEl.classList.add('hide'); tab = 'today'; render(); break;
     case 'addw': {
